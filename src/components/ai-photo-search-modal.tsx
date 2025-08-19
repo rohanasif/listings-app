@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Upload, X, Search } from "lucide-react";
+import { searchByImage } from "@/lib/actions/ai-search";
 
 interface AIPhotoSearchModalProps {
   onSearch: (imageFile: File) => void;
@@ -24,6 +27,8 @@ export default function AIPhotoSearchModal({
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isSearching, setIsSearching] = useState(false);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -45,10 +50,27 @@ export default function AIPhotoSearchModal({
     }
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (selectedImage) {
-      onSearch(selectedImage);
-      setIsOpen(false);
+      try {
+        setIsSearching(true);
+        const response = await searchByImage({ image: selectedImage });
+        toast.success("AI Search Complete", {
+          description: `Found similar properties with ${Math.round(
+            response.confidence * 100
+          )}% confidence`,
+          duration: 4000,
+        });
+        onSearch(selectedImage);
+        setIsOpen(false);
+      } catch (_error) {
+        toast.error("AI search failed", {
+          description: "Please try again",
+          duration: 5000,
+        });
+      } finally {
+        setIsSearching(false);
+      }
     }
   };
 
@@ -105,10 +127,13 @@ export default function AIPhotoSearchModal({
             ) : (
               <div className="space-y-4">
                 <div className="relative">
-                  <img
+                  <Image
                     src={previewUrl!}
                     alt="Preview"
+                    width={800}
+                    height={256}
                     className="w-full h-64 object-cover rounded-lg"
+                    unoptimized
                   />
                   <Button
                     variant="destructive"
@@ -137,9 +162,12 @@ export default function AIPhotoSearchModal({
           <Button variant="outline" onClick={() => setIsOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSearch} disabled={!selectedImage}>
+          <Button
+            onClick={handleSearch}
+            disabled={!selectedImage || isSearching}
+          >
             <Search className="h-4 w-4 mr-2" />
-            Search Properties
+            {isSearching ? "Searching..." : "Search Properties"}
           </Button>
         </DialogFooter>
       </DialogContent>

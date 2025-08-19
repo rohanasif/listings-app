@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,23 +16,17 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Filter as FilterIcon } from "lucide-react";
+import { getFilterMetadata, type FilterMetadata } from "@/lib/actions/filters";
+import { type SearchFilters } from "@/lib/actions/listings";
+import { toast } from "sonner";
 
 interface FilterModalProps {
-  onApplyFilters: (filters: FilterData) => void;
-}
-
-interface FilterData {
-  priceRange: number[];
-  location: string;
-  propertyType: string[];
-  amenities: string[];
-  maxGuests: number;
-  instantBook: boolean;
+  onApplyFilters: (filters: SearchFilters) => void;
 }
 
 export default function FilterModal({ onApplyFilters }: FilterModalProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [filters, setFilters] = useState<FilterData>({
+  const [filters, setFilters] = useState<SearchFilters>({
     priceRange: [0, 1000],
     location: "",
     propertyType: [],
@@ -40,26 +34,29 @@ export default function FilterModal({ onApplyFilters }: FilterModalProps) {
     maxGuests: 10,
     instantBook: false,
   });
+  const [filterMetadata, setFilterMetadata] = useState<FilterMetadata | null>(
+    null
+  );
+  const [loading, setLoading] = useState(false);
 
-  const propertyTypes = [
-    "Beach House",
-    "Mountain Cabin",
-    "Urban Loft",
-    "Country Villa",
-    "Lakeside Cottage",
-    "Desert Oasis",
-  ];
+  // Load filter metadata when modal opens
+  useEffect(() => {
+    if (isOpen && !filterMetadata) {
+      const loadFilters = async () => {
+        try {
+          setLoading(true);
+          const metadata = await getFilterMetadata();
+          setFilterMetadata(metadata);
+        } catch (_error) {
+          toast.error("Failed to load filter options");
+        } finally {
+          setLoading(false);
+        }
+      };
 
-  const amenities = [
-    "WiFi",
-    "Kitchen",
-    "Parking",
-    "Pool",
-    "Hot Tub",
-    "Fireplace",
-    "Air Conditioning",
-    "Pet Friendly",
-  ];
+      loadFilters();
+    }
+  }, [isOpen, filterMetadata]);
 
   const handleApplyFilters = () => {
     onApplyFilters(filters);
@@ -97,22 +94,35 @@ export default function FilterModal({ onApplyFilters }: FilterModalProps) {
           {/* Price Range */}
           <div className="space-y-3">
             <Label>Price Range (per hour)</Label>
-            <div className="px-2">
-              <Slider
-                value={filters.priceRange}
-                onValueChange={(value) =>
-                  setFilters({ ...filters, priceRange: value as number[] })
-                }
-                max={1000}
-                min={0}
-                step={10}
-                className="w-full"
-              />
-              <div className="flex justify-between text-sm text-muted-foreground mt-2">
-                <span>${filters.priceRange[0]}</span>
-                <span>${filters.priceRange[1]}</span>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">
+                Loading price range...
               </div>
-            </div>
+            ) : filterMetadata?.priceRange ? (
+              <div className="px-2">
+                <Slider
+                  value={filters.priceRange}
+                  onValueChange={(value) =>
+                    setFilters({
+                      ...filters,
+                      priceRange: value as [number, number],
+                    })
+                  }
+                  max={filterMetadata.priceRange.max}
+                  min={filterMetadata.priceRange.min}
+                  step={filterMetadata.priceRange.step || 10}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-sm text-muted-foreground mt-2">
+                  <span>${filters.priceRange?.[0] || 0}</span>
+                  <span>${filters.priceRange?.[1] || 1000}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                Price range not available
+              </div>
+            )}
           </div>
 
           {/* Location */}
@@ -131,99 +141,198 @@ export default function FilterModal({ onApplyFilters }: FilterModalProps) {
           {/* Property Type */}
           <div className="space-y-3">
             <Label>Property Type</Label>
-            <div className="grid grid-cols-2 gap-3">
-              {propertyTypes.map((type) => (
-                <div key={type} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={type}
-                    checked={filters.propertyType.includes(type)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setFilters({
-                          ...filters,
-                          propertyType: [...filters.propertyType, type],
-                        });
-                      } else {
-                        setFilters({
-                          ...filters,
-                          propertyType: filters.propertyType.filter(
-                            (t) => t !== type
-                          ),
-                        });
-                      }
-                    }}
-                  />
-                  <Label htmlFor={type} className="text-sm font-normal">
-                    {type}
-                  </Label>
-                </div>
-              ))}
-            </div>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">
+                Loading property types...
+              </div>
+            ) : filterMetadata?.propertyTypes ? (
+              <div className="grid grid-cols-2 gap-3">
+                {filterMetadata.propertyTypes.options.map((type) => (
+                  <div key={type.value} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={type.value}
+                      checked={filters.propertyType?.includes(type.value) || false}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setFilters({
+                            ...filters,
+                            propertyType: [...(filters.propertyType || []), type.value],
+                          });
+                        } else {
+                          setFilters({
+                            ...filters,
+                            propertyType: (filters.propertyType || []).filter(
+                              (t) => t !== type.value
+                            ),
+                          });
+                        }
+                      }}
+                    />
+                    <Label htmlFor={type.value} className="text-sm font-normal">
+                      {type.label} ({type.count})
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                No property types available
+              </div>
+            )}
           </div>
 
           {/* Amenities */}
           <div className="space-y-3">
             <Label>Amenities</Label>
-            <div className="grid grid-cols-2 gap-3">
-              {amenities.map((amenity) => (
-                <div key={amenity} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={amenity}
-                    checked={filters.amenities.includes(amenity)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setFilters({
-                          ...filters,
-                          amenities: [...filters.amenities, amenity],
-                        });
-                      } else {
-                        setFilters({
-                          ...filters,
-                          amenities: filters.amenities.filter(
-                            (a) => a !== amenity
-                          ),
-                        });
-                      }
-                    }}
-                  />
-                  <Label htmlFor={amenity} className="text-sm font-normal">
-                    {amenity}
-                  </Label>
-                </div>
-              ))}
-            </div>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">
+                Loading amenities...
+              </div>
+            ) : filterMetadata?.amenities ? (
+              <div className="grid grid-cols-2 gap-3">
+                {filterMetadata.amenities.options.map((amenity) => (
+                  <div
+                    key={amenity.value}
+                    className="flex items-center space-x-2"
+                  >
+                    <Checkbox
+                      id={amenity.value}
+                      checked={filters.amenities?.includes(amenity.value) || false}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setFilters({
+                            ...filters,
+                            amenities: [...(filters.amenities || []), amenity.value],
+                          });
+                        } else {
+                          setFilters({
+                            ...filters,
+                            amenities: (filters.amenities || []).filter(
+                              (a) => a !== amenity.value
+                            ),
+                          });
+                        }
+                      }}
+                    />
+                    <Label
+                      htmlFor={amenity.value}
+                      className="text-sm font-normal"
+                    >
+                      {amenity.label} ({amenity.count})
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                No amenities available
+              </div>
+            )}
           </div>
 
           {/* Max Guests */}
           <div className="space-y-2">
             <Label htmlFor="maxGuests">Maximum Guests</Label>
-            <Input
-              id="maxGuests"
-              type="number"
-              min="1"
-              max="50"
-              value={filters.maxGuests}
-              onChange={(e) =>
-                setFilters({
-                  ...filters,
-                  maxGuests: parseInt(e.target.value) || 1,
-                })
-              }
-            />
+            {loading ? (
+              <div className="text-sm text-muted-foreground">
+                Loading guest options...
+              </div>
+            ) : filterMetadata?.guestCapacity ? (
+              <div className="grid grid-cols-2 gap-3">
+                {filterMetadata.guestCapacity.options.map((option) => (
+                  <div
+                    key={option.value}
+                    className="flex items-center space-x-2"
+                  >
+                    <Checkbox
+                      id={option.value}
+                      checked={(filters.maxGuests || 0) >= parseInt(option.value)}
+                      onCheckedChange={(_checked) => {
+                        if (_checked) {
+                          setFilters({
+                            ...filters,
+                            maxGuests: parseInt(option.value),
+                          });
+                        }
+                      }}
+                    />
+                    <Label
+                      htmlFor={option.value}
+                      className="text-sm font-normal"
+                    >
+                      {option.label} ({option.count})
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Input
+                id="maxGuests"
+                type="number"
+                min="1"
+                max="50"
+                value={filters.maxGuests}
+                onChange={(e) =>
+                  setFilters({
+                    ...filters,
+                    maxGuests: parseInt(e.target.value) || 1,
+                  })
+                }
+              />
+            )}
           </div>
 
           {/* Instant Book */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="instantBook"
-              checked={filters.instantBook}
-              onCheckedChange={(checked) =>
-                setFilters({ ...filters, instantBook: checked as boolean })
-              }
-            />
-            <Label htmlFor="instantBook" className="text-sm font-normal">
-              Instant Book Available
-            </Label>
+          <div className="space-y-3">
+            <Label>Instant Book</Label>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">
+                Loading instant book options...
+              </div>
+            ) : filterMetadata?.instantBook ? (
+              <div className="space-y-2">
+                {filterMetadata.instantBook.options.map((option) => (
+                  <div
+                    key={option.value}
+                    className="flex items-center space-x-2"
+                  >
+                    <Checkbox
+                      id={option.value}
+                      checked={
+                        option.value === "true"
+                          ? filters.instantBook
+                          : !filters.instantBook
+                      }
+                      onCheckedChange={(_checked) => {
+                        setFilters({
+                          ...filters,
+                          instantBook: option.value === "true",
+                        });
+                      }}
+                    />
+                    <Label
+                      htmlFor={option.value}
+                      className="text-sm font-normal"
+                    >
+                      {option.label} ({option.count})
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="instantBook"
+                  checked={filters.instantBook}
+                  onCheckedChange={(checked) =>
+                    setFilters({ ...filters, instantBook: checked as boolean })
+                  }
+                />
+                <Label htmlFor="instantBook" className="text-sm font-normal">
+                  Instant Book Available
+                </Label>
+              </div>
+            )}
           </div>
         </div>
 

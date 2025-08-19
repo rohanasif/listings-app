@@ -9,34 +9,51 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import FilterModal from "@/components/filter-modal";
 import AIPhotoSearchModal from "@/components/ai-photo-search-modal";
-
-interface Location {
-  id: number;
-  name: string;
-  location: string;
-  price: string;
-  coordinates: [number, number];
-}
+import { getPopularLocations, searchListings } from "@/lib/actions";
+import { Location, SearchFilters } from "@/lib/actions/listings";
+import { LocationData } from "@/lib/actions/locations";
 
 interface SearchBarProps {
   listings: Location[];
   showMap: boolean;
   onToggleMap: (show: boolean) => void;
+  onSearchResults?: (listings: Location[]) => void;
+  onLocationChange?: (location: string) => void;
+  onApplyFilters?: (filters: SearchFilters) => void;
 }
 
 export default function SearchBar({
   listings,
   showMap,
   onToggleMap,
+  onSearchResults,
+  onLocationChange,
+  onApplyFilters,
 }: SearchBarProps) {
-  const [activeFilters, setActiveFilters] = useState([
-    "Filter 1",
-    "Filter 2",
-    "Filter 3",
-  ]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState("California, USA");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+
+  const [popularLocations, setPopularLocations] = useState<LocationData[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Load popular locations on mount
+  useEffect(() => {
+    const loadLocations = async () => {
+      try {
+        const locations = await getPopularLocations();
+        setPopularLocations(locations);
+      } catch (_error) {
+        toast.error("Failed to load locations");
+      }
+    };
+
+    loadLocations();
+  }, []);
 
   const removeFilter = (filterToRemove: string) => {
     setActiveFilters(
@@ -46,6 +63,53 @@ export default function SearchBar({
 
   const handleMapToggle = () => {
     onToggleMap(!showMap);
+  };
+
+  const handleSearch = async () => {
+    if (searchQuery.trim()) {
+      try {
+        setLoading(true);
+        const response = await searchListings(searchQuery.trim());
+        onSearchResults?.(response.listings);
+        toast.success("Search Complete", {
+          description: `Found ${response.listings.length} properties`,
+          duration: 3000,
+        });
+      } catch (_error) {
+        toast.error("Search failed", {
+          description: "Please try again",
+          duration: 5000,
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleLocationSelect = async (location: string) => {
+    setSelectedLocation(location);
+    onLocationChange?.(location);
+    
+    // Trigger a search with the new location
+    try {
+      setLoading(true);
+      const response = await searchListings("", { location });
+      onSearchResults?.(response.listings);
+      toast.success("Location updated", {
+        description: `Found ${response.listings.length} properties in ${location}`,
+        duration: 2000,
+      });
+    } catch (_error) {
+      toast.error("Failed to search by location");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
   };
 
   return (
@@ -58,8 +122,11 @@ export default function SearchBar({
           <Input
             id="search-input"
             type="text"
-            placeholder="Search"
+            placeholder="Search properties, locations, or styles..."
             className="pl-10 h-12 text-base"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyPress={handleKeyPress}
           />
         </div>
 
@@ -68,15 +135,29 @@ export default function SearchBar({
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="h-12 px-4">
               <MapPin className="h-4 w-4 mr-2" />
-              California, USA
+              {selectedLocation}
               <ChevronDown className="h-4 w-4 ml-2" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            <DropdownMenuItem>California, USA</DropdownMenuItem>
-            <DropdownMenuItem>New York, USA</DropdownMenuItem>
-            <DropdownMenuItem>Texas, USA</DropdownMenuItem>
-            <DropdownMenuItem>Florida, USA</DropdownMenuItem>
+            {loading ? (
+              <DropdownMenuItem disabled>Loading...</DropdownMenuItem>
+            ) : popularLocations.length === 0 ? (
+              <DropdownMenuItem disabled>
+                No locations available
+              </DropdownMenuItem>
+            ) : (
+              popularLocations.map((location, index) => (
+                <DropdownMenuItem
+                  key={index}
+                  onClick={() =>
+                    handleLocationSelect(`${location.name}, ${location.state}`)
+                  }
+                >
+                  {location.name}, {location.state}
+                </DropdownMenuItem>
+              ))
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -89,9 +170,7 @@ export default function SearchBar({
         />
 
         {/* Filter Modal */}
-        <FilterModal
-          onApplyFilters={(filters) => console.log("Applied filters:", filters)}
-        />
+        <FilterModal onApplyFilters={(filters) => onApplyFilters?.(filters)} />
       </div>
 
       {/* Active Filters */}
@@ -117,8 +196,9 @@ export default function SearchBar({
       {/* Results Count and Map Toggle */}
       <div className="flex items-center justify-between">
         <p className="text-gray-600 text-sm">
-          Showing 1-{listings.length} of {listings.length} wedding locations
-          across California, USA
+          {loading
+            ? "Searching..."
+            : `Showing 1-${listings.length} of ${listings.length} wedding locations across ${selectedLocation}`}
         </p>
 
         <div className="flex items-center gap-2">

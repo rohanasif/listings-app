@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ModeToggle } from "@/components/theme-toggle";
 import Navbar from "@/components/navigation/navbar";
+import { Toaster } from "@/components/ui/sonner";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -34,6 +35,7 @@ export default function RootLayout({
             <Navbar />
             <main className="flex-1">{children}</main>
           </div>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>
